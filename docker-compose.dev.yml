@@ -1,0 +1,15 @@
+# Dev override: hot reload + DB migrations on startup
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+services:
+  app:
+    build:
+      context: .
+      target: base
+    command: sh -c "pnpm install && pnpm db:migrate && pnpm dev"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgres://app:appsecret@db:5432/home_renovation

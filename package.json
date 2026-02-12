@@ -1,0 +1,47 @@
+{
+  "name": "home-renovation-tracker",
+  "version": "1.0.0",
+  "description": "Backend for home renovation project tracking",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "db:migrate": "knex migrate:latest --knexfile knexfile.cjs",
+    "test": "vitest run",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "express": "^4.21.1",
+    "graphql": "^16.9.0",
+    "graphql-yoga": "^5.11.0",
+    "jsonwebtoken": "^9.0.2",
+    "knex": "^3.1.0",
+    "pg": "^8.13.1",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/express": "^4.17.21",
+    "@types/supertest": "^6.0.2",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.10.1",
+    "@types/pg": "^8.11.10",
+    "eslint": "^9.16.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.16.0",
+    "supertest": "^7.0.0",
+    "vitest": "^2.1.6"
+  }
+}
