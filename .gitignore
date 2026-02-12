@@ -9,6 +9,9 @@ dist
 .env.local
 .env.*.local
 
+# Script config (tokens + defaults)
+scripts/.script-config.json
+
 # Logs
 *.log
 npm-debug.log*

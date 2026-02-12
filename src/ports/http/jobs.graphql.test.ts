@@ -179,6 +179,102 @@ describe('Jobs GraphQL (integration)', () => {
       expect(result.errors).toHaveLength(1);
       expect(result.errors?.[0]?.message).toBe('Access denied');
     });
+
+    it('returns paginated jobMessages when requested', async () => {
+      const mockMessages = [
+        {
+          id: 'msg-1',
+          job_id: jobId,
+          author_id: 'contractor-1',
+          recipient_id: 'homeowner-1',
+          message: 'Hello',
+          created_at: new Date(),
+        },
+      ];
+      vi.mocked(jobsPortOut.getJobById).mockResolvedValue(mockJob);
+      vi.mocked(jobsPortOut.getJobMessagesPaginated).mockResolvedValue({
+        messages: mockMessages,
+        hasMore: false,
+      });
+
+      const result = (await fetchGraphql(
+        `query GetJob($id: ID!) {
+          getJobById(id: $id) {
+            id
+            jobMessages(limit: 10) {
+              messages { id job_id author_id recipient_id message created_at }
+              hasMore
+            }
+          }
+        }`,
+        { id: jobId },
+        { asHomeowner: true }
+      )) as {
+        data?: {
+          getJobById?: {
+            id: string;
+            jobMessages: {
+              messages: Array<{
+                id: string;
+                job_id: string;
+                author_id: string;
+                recipient_id: string;
+                message: string;
+                created_at: string;
+              }>;
+              hasMore: boolean;
+            };
+          };
+        };
+      };
+
+      expect(result.data?.getJobById?.id).toBe(jobId);
+      expect(result.data?.getJobById?.jobMessages.messages).toHaveLength(1);
+      expect(result.data?.getJobById?.jobMessages.messages[0].message).toBe('Hello');
+      expect(result.data?.getJobById?.jobMessages.hasMore).toBe(false);
+      expect(jobsPortOut.getJobMessagesPaginated).toHaveBeenCalledWith(jobId, 10, undefined);
+    });
+
+    it('passes after cursor for load more', async () => {
+      vi.mocked(jobsPortOut.getJobById).mockResolvedValue(mockJob);
+      vi.mocked(jobsPortOut.getJobMessagesPaginated).mockResolvedValue({
+        messages: [
+          {
+            id: 'msg-2',
+            job_id: jobId,
+            author_id: 'homeowner-1',
+            recipient_id: 'contractor-1',
+            message: 'Thanks!',
+            created_at: new Date(),
+          },
+        ],
+        hasMore: true,
+      });
+
+      const result = (await fetchGraphql(
+        `query GetJob($id: ID!, $after: ID) {
+          getJobById(id: $id) {
+            id
+            jobMessages(limit: 10, after: $after) {
+              messages { id message }
+              hasMore
+            }
+          }
+        }`,
+        { id: jobId, after: 'msg-1' },
+        { asHomeowner: true }
+      )) as {
+        data?: {
+          getJobById?: {
+            jobMessages: { messages: Array<{ id: string }>; hasMore: boolean };
+          };
+        };
+      };
+
+      expect(result.data?.getJobById?.jobMessages.messages).toHaveLength(1);
+      expect(result.data?.getJobById?.jobMessages.hasMore).toBe(true);
+      expect(jobsPortOut.getJobMessagesPaginated).toHaveBeenCalledWith(jobId, 10, 'msg-1');
+    });
   });
 
   describe('Mutation createJob', () => {
@@ -577,6 +673,183 @@ describe('Jobs GraphQL (integration)', () => {
       expect(result.errors).toHaveLength(1);
       expect(result.errors?.[0]?.message).toBe('Access denied');
       expect(jobsPortOut.deleteJob).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Mutation addJobMessage', () => {
+    const mockInsertedMessage = {
+      id: 'msg-new',
+      job_id: jobId,
+      author_id: 'contractor-1',
+      recipient_id: 'homeowner-1',
+      message: 'Progress update',
+      created_at: new Date(),
+    };
+
+    it('returns message on success when contractor sends to homeowner', async () => {
+      vi.mocked(jobsPortOut.getJobById).mockResolvedValue(mockJob);
+      vi.mocked(jobsPortOut.insertJobMessage).mockResolvedValue([mockInsertedMessage]);
+
+      const result = (await fetchGraphql(
+        `mutation AddJobMessage($input: AddJobMessageInput!) {
+          addJobMessage(input: $input) { id job_id author_id recipient_id message created_at }
+        }`,
+        {
+          input: {
+            job_id: jobId,
+            recipient_id: 'homeowner-1',
+            message: 'Progress update',
+          },
+        },
+        { asContractor: true }
+      )) as {
+        data?: {
+          addJobMessage?: {
+            id: string;
+            job_id: string;
+            author_id: string;
+            recipient_id: string;
+            message: string;
+            created_at: string;
+          };
+        };
+      };
+
+      expect(result.data?.addJobMessage?.id).toBe('msg-new');
+      expect(result.data?.addJobMessage?.message).toBe('Progress update');
+      expect(result.data?.addJobMessage?.author_id).toBe('contractor-1');
+      expect(jobsPortOut.insertJobMessage).toHaveBeenCalled();
+    });
+
+    it('returns message on success when homeowner sends to contractor', async () => {
+      vi.mocked(jobsPortOut.getJobById).mockResolvedValue(mockJob);
+      vi.mocked(jobsPortOut.insertJobMessage).mockResolvedValue([
+        { ...mockInsertedMessage, author_id: 'homeowner-1', recipient_id: 'contractor-1' },
+      ]);
+
+      const result = (await fetchGraphql(
+        `mutation AddJobMessage($input: AddJobMessageInput!) {
+          addJobMessage(input: $input) { id author_id recipient_id message }
+        }`,
+        {
+          input: {
+            job_id: jobId,
+            recipient_id: 'contractor-1',
+            message: 'When can you start?',
+          },
+        },
+        { asHomeowner: true }
+      )) as { data?: { addJobMessage?: { author_id: string; recipient_id: string } } };
+
+      expect(result.data?.addJobMessage?.author_id).toBe('homeowner-1');
+      expect(result.data?.addJobMessage?.recipient_id).toBe('contractor-1');
+    });
+
+    it('returns error when unauthenticated', async () => {
+      vi.mocked(jobsPortOut.getJobById).mockResolvedValue(mockJob);
+
+      const result = (await fetchGraphql(
+        `mutation AddJobMessage($input: AddJobMessageInput!) {
+          addJobMessage(input: $input) { id }
+        }`,
+        {
+          input: {
+            job_id: jobId,
+            recipient_id: 'homeowner-1',
+            message: 'Hello',
+          },
+        }
+      )) as { errors?: Array<{ message: string }> };
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors?.[0]?.message).toBe('Authentication required');
+      expect(jobsPortOut.insertJobMessage).not.toHaveBeenCalled();
+    });
+
+    it('returns error when user has no access to job', async () => {
+      vi.mocked(jobsPortOut.getJobById).mockResolvedValue(mockJob);
+
+      const result = (await fetchGraphql(
+        `mutation AddJobMessage($input: AddJobMessageInput!) {
+          addJobMessage(input: $input) { id }
+        }`,
+        {
+          input: {
+            job_id: jobId,
+            recipient_id: 'homeowner-1',
+            message: 'Hello',
+          },
+        },
+        { asOtherContractor: true }
+      )) as { errors?: Array<{ message: string }> };
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors?.[0]?.message).toBe('Access denied');
+      expect(jobsPortOut.insertJobMessage).not.toHaveBeenCalled();
+    });
+
+    it('returns error when recipient is not contractor or homeowner', async () => {
+      vi.mocked(jobsPortOut.getJobById).mockResolvedValue(mockJob);
+
+      const result = (await fetchGraphql(
+        `mutation AddJobMessage($input: AddJobMessageInput!) {
+          addJobMessage(input: $input) { id }
+        }`,
+        {
+          input: {
+            job_id: jobId,
+            recipient_id: 'contractor-2',
+            message: 'Hello',
+          },
+        },
+        { asContractor: true }
+      )) as { errors?: Array<{ message: string }> };
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors?.[0]?.message).toBe(
+        'Recipient must be the contractor or homeowner of the job'
+      );
+      expect(jobsPortOut.insertJobMessage).not.toHaveBeenCalled();
+    });
+
+    it('returns error when message is empty', async () => {
+      vi.mocked(jobsPortOut.getJobById).mockResolvedValue(mockJob);
+
+      const result = (await fetchGraphql(
+        `mutation AddJobMessage($input: AddJobMessageInput!) {
+          addJobMessage(input: $input) { id }
+        }`,
+        {
+          input: {
+            job_id: jobId,
+            recipient_id: 'homeowner-1',
+            message: '   ',
+          },
+        },
+        { asContractor: true }
+      )) as { errors?: Array<{ message: string }> };
+
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors?.[0]?.message).toBe('Message cannot be empty');
+    });
+  });
+
+  describe('Subscription jobMessages', () => {
+    it('subscription is defined in schema', async () => {
+      const result = (await fetchGraphql(
+        `query Introspect { __schema { subscriptionType { name fields { name } } } }`,
+        undefined,
+        { asHomeowner: true }
+      )) as {
+        data?: {
+          __schema?: { subscriptionType?: { name: string; fields: Array<{ name: string }> } };
+        };
+      };
+      expect(result.data?.__schema?.subscriptionType?.name).toBe('Subscription');
+      const jobMessagesField = result.data?.__schema?.subscriptionType?.fields?.find(
+        (f) => f.name === 'jobMessages'
+      );
+      expect(jobMessagesField).toBeDefined();
     });
   });
 });

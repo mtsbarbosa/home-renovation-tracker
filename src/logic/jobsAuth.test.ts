@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { canViewJob, canEditJobAsContractor, canCreateJobAsContractor } from './jobsAuth.js';
+import {
+  canViewJob,
+  canEditJobAsContractor,
+  canCreateJobAsContractor,
+  canAddMessageToJob,
+  isValidMessageRecipient,
+} from './jobsAuth.js';
 import { JobStatus } from '../models/job.js';
 
 const baseJob = {
@@ -47,5 +53,35 @@ describe('canCreateJobAsContractor', () => {
 
   it('returns false when contractor_id does not match', () => {
     expect(canCreateJobAsContractor('contractor-2', 'contractor-1')).toBe(false);
+  });
+});
+
+describe('canAddMessageToJob', () => {
+  it('returns true when user is contractor or homeowner', () => {
+    expect(canAddMessageToJob(baseJob, 'contractor-1')).toBe(true);
+    expect(canAddMessageToJob(baseJob, 'homeowner-1')).toBe(true);
+  });
+
+  it('returns false when user has no access', () => {
+    expect(canAddMessageToJob(baseJob, 'contractor-2')).toBe(false);
+  });
+});
+
+describe('isValidMessageRecipient', () => {
+  it('returns true when recipient is the other party', () => {
+    expect(isValidMessageRecipient(baseJob, 'contractor-1', 'homeowner-1')).toBe(true);
+    expect(isValidMessageRecipient(baseJob, 'homeowner-1', 'contractor-1')).toBe(true);
+  });
+
+  it('returns false when recipient is the author', () => {
+    expect(isValidMessageRecipient(baseJob, 'contractor-1', 'contractor-1')).toBe(false);
+  });
+
+  it('returns false when recipient is not contractor or homeowner', () => {
+    expect(isValidMessageRecipient(baseJob, 'contractor-1', 'contractor-2')).toBe(false);
+  });
+
+  it('returns false when author is not contractor or homeowner', () => {
+    expect(isValidMessageRecipient(baseJob, 'contractor-2', 'homeowner-1')).toBe(false);
   });
 });

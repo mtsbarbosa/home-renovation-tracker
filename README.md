@@ -17,6 +17,8 @@ Backend service for contractors and homeowners to collaborate on renovation proj
 Flow: `Port (GraphQL) → Controller → Logic/Adapter`; Controller orchestrates; Adapter validates and converts; Logic holds pure rules.
 
 Job mutations are not blocking, so the api user will just receive an id, and a message that the insert / update / delete is ongoing. Since mid-heavy operations such as rolling back history might come, I took the decision blocking as few as possible user operations.
+Jobs + JobMessages caching? It would be a nice adding caching them as soon as the scale gets really big (~1MM to ~3MM users/min across all instances so the postgres dont get overload) or optionally, adding read replicas instead
+If writting jobs / messages gets higher than ~30,000 writes/s we could take advantage of the async operations to queue jobs to be inserted in bulks keeping write limits under control
 
 ## Tech Stack
 
@@ -92,6 +94,30 @@ Connection string: `postgres://app:appsecret@localhost:5432/home_renovation`
 | `pnpm test`     | Run tests                        |
 | `pnpm lint`     | Run ESLint                       |
 | `pnpm format`   | Format code with Prettier        |
+| `pnpm script:subscribe` | Login both users, run 2 subscriptions, exchange 2 messages each |
+| `pnpm script:scrape-messages` | Paginate and print all job messages |
+
+### Demo scripts (subscribe + scrape)
+
+Scripts use `scripts/.script-config.json` for defaults and tokens (gitignored). Created automatically from `.script-config.example.json` on first run. Ensure users exist (signup with contractor/homeowner roles) and a job with both assigned.
+
+```bash
+cp scripts/.script-config.example.json scripts/.script-config.json
+```
+
+**Subscribe and exchange messages:**
+
+```bash
+./scripts/subscribe-and-message.sh
+# Or with args: ./scripts/subscribe-and-message.sh [contractor_email] [contractor_pass] [homeowner_email] [homeowner_pass] [job_id]
+```
+
+**Scrape messages (paginated):**
+
+```bash
+./scripts/scrape-messages.sh
+# Or: ./scripts/scrape-messages.sh [job_id]
+```
 
 ## Auth API
 
@@ -126,9 +152,11 @@ All GraphQL requests go to `POST http://localhost:3000/graphql` with `Content-Ty
 Authorization: Bearer <jwt-from-signin-response>
 ```
 
-- **getJobById** — Contractor or homeowner; user must be the job’s contractor or homeowner
+- **getJobById** — Contractor or homeowner; user must be the job’s contractor or homeowner; includes `jobMessages`
 - **createJob** — Contractor only; `contractor_id` must match the authenticated user
 - **patchJob, deleteJob** — Contractor only; user must be the job’s contractor
+- **addJobMessage** — Contractor or homeowner; user must be on the job; recipient must be the other party
+- **jobMessages** (subscription) — Real-time messages per job; user must have access to the job
 
 **Ping:**
 
@@ -163,6 +191,10 @@ query GetJob($id: ID!) {
     contractor_id
     homeowner_id
     status_message
+    jobMessages(limit: 10) {
+      messages { id author_id recipient_id message created_at }
+      hasMore
+    }
   }
 }
 ```
@@ -260,6 +292,81 @@ curl -X POST http://localhost:3000/graphql \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <jwt-token>" \
   -d '{"query":"mutation DeleteJob($id: ID!) { deleteJob(id: $id) { id message success } }","variables":{"id":"<job-uuid>"}}'
+```
+
+**Add job message:**
+
+*Playground:*
+```graphql
+mutation AddJobMessage($input: AddJobMessageInput!) {
+  addJobMessage(input: $input) {
+    id
+    job_id
+    author_id
+    recipient_id
+    message
+    created_at
+  }
+}
+```
+*Variables:*
+```json
+{
+  "input": {
+    "job_id": "<job-uuid>",
+    "recipient_id": "<contractor-or-homeowner-uuid>",
+    "message": "Progress update: drywall is done."
+  }
+}
+```
+Note: Author must be contractor or homeowner on the job. Recipient must be the other party. Job must have a homeowner.
+
+**Job messages pagination (load more):**
+
+First page (omit `after`):
+```graphql
+query GetJobMessages($id: ID!) {
+  getJobById(id: $id) {
+    id
+    jobMessages(limit: 10) {
+      messages { id message author_id created_at }
+      hasMore
+    }
+  }
+}
+```
+*Variables:* `{ "id": "<job-uuid>" }`
+
+Next page (pass `after` = id of last message from previous response):
+```graphql
+query GetJobMessages($id: ID!, $after: ID) {
+  getJobById(id: $id) {
+    id
+    jobMessages(limit: 10, after: $after) {
+      messages { id message author_id created_at }
+      hasMore
+    }
+  }
+}
+```
+*Variables:* `{ "id": "<job-uuid>", "after": "<last-message-id>" }`
+
+*curl (load more):*
+```bash
+curl -X POST http://localhost:3000/graphql \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <jwt-token>" \
+  -d '{"query":"query GetJobMessages($id: ID!, $after: ID) { getJobById(id: $id) { id jobMessages(limit: 10, after: $after) { messages { id message author_id created_at } hasMore } } }","variables":{"id":"<job-uuid>","after":"<last-message-id>"}}'
+```
+
+**Job messages subscription (SSE):**
+
+Subscriptions use Server-Sent Events. Use `graphql-sse` client or:
+
+```bash
+curl -N -H "Accept: text/event-stream" \
+  -H "Authorization: Bearer <jwt-token>" \
+  "http://localhost:3000/graphql?query=subscription%20JobMessages($jobId:%20ID!)%20%7B%20jobMessages(jobId:%20$jobId)%20%7B%20id%20message%20author_id%20created_at%20%7D%20%7D&variables=%7B%22jobId%22:%22%3Cjob-uuid%3E%22%7D"
 ```
 
 GraphQL Playground: http://localhost:3000/graphql
