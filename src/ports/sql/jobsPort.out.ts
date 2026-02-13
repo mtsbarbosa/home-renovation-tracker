@@ -17,7 +17,7 @@ export async function createJob(job: Job): Promise<Job[]> {
 }
 
 export async function patchJob(job: Job): Promise<Job[]> {
-  const { id, contractor_id: _, updated_at: __, created_at: ___, ...rest } = job;
+  const { id, contractor_id: _, ...rest } = job;
   const updatePayload = {
     ...rest,
     status_message: rest.status_message ?? null,

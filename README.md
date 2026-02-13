@@ -2,6 +2,10 @@
 
 Backend service for contractors and homeowners to collaborate on renovation projects.
 
+## AI Used
+- Cursor + Composer 1.5 model mode (IDE + chat + completions)
+- Check `.cursor/rules` and `context.md` for more details
+
 ## Architecture (Hexagonal)
 
 - **models/** — Core schemas (pure types, no logic)
@@ -16,9 +20,15 @@ Backend service for contractors and homeowners to collaborate on renovation proj
 
 Flow: `Port (GraphQL) → Controller → Logic/Adapter`; Controller orchestrates; Adapter validates and converts; Logic holds pure rules.
 
+**Technical details**:
 Job mutations are not blocking, so the api user will just receive an id, and a message that the insert / update / delete is ongoing. Since mid-heavy operations such as rolling back history might come, I took the decision blocking as few as possible user operations.
-Jobs + JobMessages caching? It would be a nice adding caching them as soon as the scale gets really big (~1MM to ~3MM users/min across all instances so the postgres dont get overload) or optionally, adding read replicas instead
-If writting jobs / messages gets higher than ~30,000 writes/s we could take advantage of the async operations to queue jobs to be inserted in bulks keeping write limits under control
+
+**To consider for the future**:
+- Jobs + JobMessages caching, it would be a nice adding caching them as soon as the scale gets really big (~1MM to ~3MM users/min across all instances so the postgres dont get overload) or optionally, adding read replicas instead;
+- If writting jobs / messages gets higher than ~30,000 writes/s we could take advantage of the async operations to queue jobs to be inserted in bulks keeping write limits under control;
+- Add winston or any other log library and output proper logs, specially on the important exception catches
+- Add prom-client and expose /metrics and default node metrics for observability
+- Add forget password, e-mail activation feature for auth. If the system grows auth can be extracted to another service with different provisioning.
 
 ## Tech Stack
 
@@ -59,6 +69,12 @@ JWT_SECRET=your-secret docker compose up --build
 - App: http://localhost:3000
 - GraphQL Playground: http://localhost:3000/graphql
 - Health check: http://localhost:3000/health
+
+Only db with docker:
+```bash
+# Set JWT_SECRET for production (or it defaults to a dev placeholder)
+JWT_SECRET=your-secret docker compose up --build db
+```
 
 ### Development with Docker (hot reload)
 
@@ -157,18 +173,6 @@ Authorization: Bearer <jwt-from-signin-response>
 - **patchJob, deleteJob** — Contractor only; user must be the job’s contractor
 - **addJobMessage** — Contractor or homeowner; user must be on the job; recipient must be the other party
 - **jobMessages** (subscription) — Real-time messages per job; user must have access to the job
-
-**Ping:**
-
-*Playground:*
-```graphql
-query {
-  ping {
-    message
-    timestamp
-  }
-}
-```
 
 *curl:*
 ```bash
@@ -368,5 +372,3 @@ curl -N -H "Accept: text/event-stream" \
   -H "Authorization: Bearer <jwt-token>" \
   "http://localhost:3000/graphql?query=subscription%20JobMessages($jobId:%20ID!)%20%7B%20jobMessages(jobId:%20$jobId)%20%7B%20id%20message%20author_id%20created_at%20%7D%20%7D&variables=%7B%22jobId%22:%22%3Cjob-uuid%3E%22%7D"
 ```
-
-GraphQL Playground: http://localhost:3000/graphql
