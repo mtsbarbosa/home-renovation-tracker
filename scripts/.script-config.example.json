@@ -1,0 +1,10 @@
+{
+  "contractor_email": "john.doe@example.com",
+  "contractor_password": "123",
+  "homeowner_email": "garry@example.com",
+  "homeowner_password": "123",
+  "job_id": "d976a7f0-5fdd-4680-8e80-a246d70cc25b",
+  "base_url": "http://localhost:3000",
+  "contractor_token": null,
+  "homeowner_token": null
+}
