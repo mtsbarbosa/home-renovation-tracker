@@ -29,6 +29,7 @@ Job mutations are not blocking, so the api user will just receive an id, and a m
 - Add winston or any other log library and output proper logs, specially on the important exception catches
 - Add prom-client and expose /metrics and default node metrics for observability
 - Add forget password, e-mail activation feature for auth. If the system grows auth can be extracted to another service with different provisioning.
+- Add localstack (dev) and Amazon sdk SQS/SNS for dispatching jobMessages to a notification service, which will alert the customer (push notifications, in-app notifications, and so on)
 
 ## Tech Stack
 
